@@ -1,38 +1,31 @@
-# RMED AI BOT
+# RMED AI BOT — v0.4 Timeweb
 
-Упрощённая первая версия Telegram-бота RMED AI.
+Deployment-ready Telegram bot for RMED AI.
 
-## Уже подключено
+## Included
+- Telegram webhook mode
+- FastAPI health endpoint `/health`
+- Docker container on port 8080
+- SYNТX referral link
+- PakoPay referral link
+- Lead collection with notification to admin
+- `/admin` command
+- Webhook secret verification
 
-- AI-фото
-- AI-видео
-- Портфолио
-- Услуги и цены
-- Форма заявки
-- SYNTX: https://syntx.ai/welcome/zEIpwfrW
-- PakoPay: https://t.me/pakopay_bot?start=1626444641
-- Закрытая команда `/admin`
-- FastAPI webhook
-- `/health`
-
-## Переменные окружения
-
-Никогда не добавляйте реальный Telegram Bot Token в GitHub.
-
-Нужны:
-
+## Required environment variables
 - `BOT_TOKEN`
 - `ADMIN_TELEGRAM_ID`
 - `PUBLIC_BASE_URL`
 - `WEBHOOK_SECRET`
 
-Дополнительно можно переопределить:
+Never commit a real Telegram bot token to GitHub.
 
-- `SYNTX_URL`
-- `PAYMENT_URL`
-- `CONTACT_URL`
+## Deployment
+Deploy the repository using its Dockerfile. The container listens on port `8080`.
+After the hosting platform assigns an HTTPS domain, set `PUBLIC_BASE_URL` to that
+full origin (without a trailing slash) and redeploy.
 
-## Важно
-
-Токен Telegram, который когда-либо был показан в переписке или на скриншоте,
-перед реальным запуском нужно перевыпустить через BotFather.
+## Test
+1. Open `/health` — it should return `{"status":"ok"}`.
+2. Open the Telegram bot and send `/start`.
+3. Test the lead form and confirm the admin receives it.

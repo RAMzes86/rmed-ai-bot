@@ -1,301 +1,142 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 
-from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-    Update,
+import httpx
+from fastapi import FastAPI, Request, HTTPException
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
-from fastapi import FastAPI, Header, HTTPException, Request
 
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("rmed-ai-bot")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_TELEGRAM_ID = int(os.environ.get("ADMIN_TELEGRAM_ID", "0"))
-PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"].rstrip("/")
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 
-SYNTX_URL = os.environ.get(
-    "SYNTX_URL",
-    "https://syntx.ai/welcome/zEIpwfrW",
-)
-PAYMENT_URL = os.environ.get(
-    "PAYMENT_URL",
-    "https://t.me/pakopay_bot?start=1626444641",
-)
-CONTACT_URL = os.environ.get(
-    "CONTACT_URL",
-    "https://t.me/RMEDAI",
-)
+SYNTX_URL = "https://syntx.ai/welcome/zEIpwfrW"
+PAKOPAY_URL = "https://t.me/pakopay_bot?start=1626444641"
 
-WEBHOOK_URL = f"{PUBLIC_BASE_URL}/telegram/webhook/{WEBHOOK_SECRET}"
+tg = Application.builder().token(BOT_TOKEN).updater(None).build()
 
-bot = Bot(
-    BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-)
-dp = Dispatcher()
+def menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎨 AI-фото", callback_data="photo"),
+         InlineKeyboardButton("🎬 AI-видео", callback_data="video")],
+        [InlineKeyboardButton("🖼 Портфолио", callback_data="portfolio"),
+         InlineKeyboardButton("💰 Услуги и цены", callback_data="prices")],
+        [InlineKeyboardButton("📝 Оставить заявку", callback_data="lead")],
+        [InlineKeyboardButton("⚡ SYNТX", url=SYNTX_URL),
+         InlineKeyboardButton("💳 Оплата зарубежных сервисов", url=PAKOPAY_URL)],
+    ])
 
-
-class OrderForm(StatesGroup):
-    service = State()
-    description = State()
-    contact = State()
-
-
-def main_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📸 AI-фото", callback_data="photo"),
-                InlineKeyboardButton(text="🎬 AI-видео", callback_data="video"),
-            ],
-            [
-                InlineKeyboardButton(text="✨ Портфолио", callback_data="portfolio"),
-                InlineKeyboardButton(text="💎 Услуги и цены", callback_data="prices"),
-            ],
-            [InlineKeyboardButton(text="📝 Оставить заявку", callback_data="order")],
-            [
-                InlineKeyboardButton(text="🤖 SYNTX", url=SYNTX_URL),
-                InlineKeyboardButton(text="💳 Оплата зарубежных сервисов", url=PAYMENT_URL),
-            ],
-            [InlineKeyboardButton(text="📩 Связаться с RMED AI", url=CONTACT_URL)],
-        ]
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("waiting_lead", None)
+    await update.effective_message.reply_text(
+        "👋 Добро пожаловать в RMED AI.\n\n"
+        "AI-фото, AI-видео и креативный контент для бизнеса и соцсетей.\n"
+        "Выберите нужный раздел:",
+        reply_markup=menu(),
     )
 
-
-def back_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="home")]
-        ]
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.id != ADMIN_TELEGRAM_ID:
+        return
+    await update.effective_message.reply_text(
+        "⚙️ RMED AI Admin\n\nБот запущен и принимает заявки."
     )
 
-
-def admin_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Статус", callback_data="admin_status")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="home")],
-        ]
-    )
-
-
-WELCOME = (
-    "🟣 <b>RMED AI</b>\n\n"
-    "AI-фото, AI-видео и рекламный контент.\n"
-    "Выберите нужный раздел:"
-)
-
-
-async def show_home(target: Message | CallbackQuery):
-    if isinstance(target, CallbackQuery):
-        await target.message.edit_text(WELCOME, reply_markup=main_menu())
-        await target.answer()
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.data == "photo":
+        text = "🎨 AI-фото\n\nСоздание рекламных, портретных и креативных AI-изображений."
+    elif q.data == "video":
+        text = "🎬 AI-видео\n\nРекламные ролики, анимация изображений и AI-креативы."
+    elif q.data == "portfolio":
+        text = "🖼 Портфолио\n\nРаздел готов к наполнению вашими работами."
+    elif q.data == "prices":
+        text = "💰 Услуги и цены\n\nСтоимость зависит от задачи. Оставьте заявку — обсудим проект."
+    elif q.data == "lead":
+        context.user_data["waiting_lead"] = True
+        await q.message.reply_text(
+            "📝 Напишите одним сообщением:\n"
+            "1) что хотите сделать;\n"
+            "2) ваш контакт @username или телефон.\n\n"
+            "Я передам заявку Руслану."
+        )
+        return
     else:
-        await target.answer(WELCOME, reply_markup=main_menu())
-
-
-@dp.message(CommandStart())
-async def start_handler(message: Message, state: FSMContext):
-    await state.clear()
-    await show_home(message)
-
-
-@dp.message(Command("cancel"))
-async def cancel_handler(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Заявка отменена.", reply_markup=main_menu())
-
-
-@dp.message(Command("admin"))
-async def admin_handler(message: Message):
-    if message.from_user.id != ADMIN_TELEGRAM_ID:
         return
-    await message.answer(
-        "🛠 <b>RMED AI — админка</b>\n\n"
-        "Первая рабочая версия.",
-        reply_markup=admin_menu(),
-    )
+    await q.message.reply_text(text, reply_markup=menu())
 
-
-@dp.callback_query(F.data == "home")
-async def home_handler(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await show_home(callback)
-
-
-@dp.callback_query(F.data == "photo")
-async def photo_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "📸 <b>AI-фото</b>\n\n"
-        "Фотореалистичные портреты, рекламные изображения, fashion, "
-        "персонажи и креативные визуалы.\n\n"
-        "Для заказа вернитесь в меню и нажмите «Оставить заявку».",
-        reply_markup=back_menu(),
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "video")
-async def video_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🎬 <b>AI-видео</b>\n\n"
-        "Кинематографичные ролики, реклама, Reality Glitch, "
-        "персонажные сцены и анимация изображений.\n\n"
-        "Для заказа вернитесь в меню и нажмите «Оставить заявку».",
-        reply_markup=back_menu(),
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "portfolio")
-async def portfolio_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "✨ <b>Портфолио RMED AI</b>\n\n"
-        "Сюда следующим этапом добавим лучшие фото и видео, "
-        "а затем — загрузку новых работ прямо через Telegram-админку.",
-        reply_markup=back_menu(),
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "prices")
-async def prices_handler(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "💎 <b>Услуги и цены</b>\n\n"
-        "Стоимость зависит от задачи, количества сцен и сложности генерации.\n\n"
-        "Оставьте заявку — RMED AI уточнит задачу и предложит вариант.",
-        reply_markup=back_menu(),
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "order")
-async def order_start(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(OrderForm.service)
-    await callback.message.edit_text(
-        "📝 <b>Новая заявка</b>\n\n"
-        "Что вам нужно?\n"
-        "Например: AI-видео, AI-фото, рекламный ролик, оформление."
-    )
-    await callback.answer()
-
-
-@dp.message(OrderForm.service)
-async def order_service(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Напишите тип услуги текстом.")
+async def lead_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("waiting_lead"):
         return
-    await state.update_data(service=message.text.strip())
-    await state.set_state(OrderForm.description)
-    await message.answer(
-        "Опишите задачу. Можно указать сюжет, формат, длительность и стиль."
-    )
-
-
-@dp.message(OrderForm.description)
-async def order_description(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Опишите задачу текстом.")
-        return
-    await state.update_data(description=message.text.strip())
-    await state.set_state(OrderForm.contact)
-    await message.answer(
-        "Оставьте контакт для связи: @username, телефон или другой способ."
-    )
-
-
-@dp.message(OrderForm.contact)
-async def order_contact(message: Message, state: FSMContext):
-    if not message.text:
-        await message.answer("Укажите контакт текстом.")
-        return
-
-    await state.update_data(contact=message.text.strip())
-    data = await state.get_data()
-
-    username = f"@{message.from_user.username}" if message.from_user.username else "нет"
-    admin_text = (
-        "🔥 <b>Новая заявка RMED AI</b>\n\n"
-        f"<b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
-        f"<b>Username:</b> {username}\n"
-        f"<b>Имя:</b> {message.from_user.full_name}\n\n"
-        f"<b>Услуга:</b> {data['service']}\n\n"
-        f"<b>Задача:</b> {data['description']}\n\n"
-        f"<b>Контакт:</b> {data['contact']}"
-    )
-
+    context.user_data["waiting_lead"] = False
+    user = update.effective_user
+    body = update.effective_message.text
     if ADMIN_TELEGRAM_ID:
-        try:
-            await bot.send_message(ADMIN_TELEGRAM_ID, admin_text)
-        except Exception:
-            pass
-
-    await state.clear()
-    await message.answer(
-        "✅ <b>Заявка принята.</b>\n\nRMED AI получил данные и сможет связаться с вами.",
-        reply_markup=main_menu(),
+        username = f"@{user.username}" if user and user.username else "без username"
+        await context.bot.send_message(
+            ADMIN_TELEGRAM_ID,
+            f"🔥 Новая заявка RMED AI\n\n"
+            f"Клиент: {user.full_name if user else 'неизвестно'}\n"
+            f"Telegram: {username}\n"
+            f"ID: {user.id if user else '-'}\n\n"
+            f"{body}"
+        )
+    await update.effective_message.reply_text(
+        "✅ Заявка отправлена. С вами свяжутся.",
+        reply_markup=menu(),
     )
 
-
-@dp.callback_query(F.data == "admin_status")
-async def admin_status(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_TELEGRAM_ID:
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-    await callback.answer()
-    await callback.message.answer(
-        "✅ Бот работает.\n"
-        "Webhook подключён.\n"
-        "SYNTX и PakoPay подключены."
-    )
-
+tg.add_handler(CommandHandler("start", start))
+tg.add_handler(CommandHandler("admin", admin))
+tg.add_handler(CallbackQueryHandler(button))
+tg.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lead_message))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await bot.set_webhook(
-        WEBHOOK_URL,
+    if not PUBLIC_BASE_URL:
+        raise RuntimeError("PUBLIC_BASE_URL is required")
+    await tg.initialize()
+    await tg.start()
+    webhook_url = f"{PUBLIC_BASE_URL}/telegram/webhook"
+    await tg.bot.set_webhook(
+        url=webhook_url,
         secret_token=WEBHOOK_SECRET,
-        allowed_updates=dp.resolve_used_update_types(),
-        drop_pending_updates=False,
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
     )
+    log.info("Webhook installed: %s", webhook_url)
     yield
-    await bot.session.close()
+    await tg.bot.delete_webhook()
+    await tg.stop()
+    await tg.shutdown()
 
-
-app = FastAPI(title="RMED AI Bot", version="0.3.0", lifespan=lifespan)
-
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def root():
-    return {"service": "RMED AI Telegram Bot", "status": "ok"}
-
+    return {"service": "RMED AI Bot", "status": "ok"}
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-
-@app.post("/telegram/webhook/{path_secret}")
-async def telegram_webhook(
-    path_secret: str,
-    request: Request,
-    x_telegram_bot_api_secret_token: str | None = Header(default=None),
-):
-    if path_secret != WEBHOOK_SECRET:
-        raise HTTPException(status_code=404, detail="Not found")
-    if x_telegram_bot_api_secret_token != WEBHOOK_SECRET:
-        raise HTTPException(status_code=403, detail="Invalid Telegram secret")
-
-    payload = await request.json()
-    update = Update.model_validate(payload, context={"bot": bot})
-    await dp.feed_update(bot, update)
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    data = await request.json()
+    await tg.process_update(Update.de_json(data, tg.bot))
     return {"ok": True}
