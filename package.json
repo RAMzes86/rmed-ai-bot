@@ -1,0 +1,11 @@
+{
+  "name": "rmed-ai-bot-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.33.1"
+  }
+}
