@@ -3,5 +3,10 @@
   "name": "rmed-ai-bot",
   "main": "src/index.js",
   "compatibility_date": "2026-08-30",
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    {
+      "binding": "RMED_KV"
+    }
+  ]
 }
