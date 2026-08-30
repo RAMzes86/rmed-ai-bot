@@ -8,5 +8,8 @@
     {
       "binding": "RMED_KV"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }
